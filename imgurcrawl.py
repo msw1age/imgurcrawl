@@ -1,23 +1,31 @@
 #!/usr/bin/env python3
 #Downloads all images from an imgur sub
-import requests, datetime, os, sys, shutil, time, bs4
+import os
+import sys
+import time
+import datetime
+import shutil
+import requests
+import bs4
 
 #Time the program
 startTime = time.time()
 
 #Exit routine. Prints the time the program ran, the number of files downloaded, and optionally the program's usage.
 def printExit(error=True, filesDownloaded = 0):
-    usage="""Program usage: %s subreddit [optional_mode] \nAvailable modes:  
-    a to append to a currently existing folder 
-    w to delete the currently existing folder and make a new one
-    n to create a new folder 
-    Default behavior is n""" % (sys.argv[0])
     if error == True:
-        print(usage)
-    print("Exiting program. Time elapsed: " + str(time.time() - startTime) + " seconds. Files downloaded: " + str(filesDownloaded))
+        print("Program usage: %s subreddit [optional_mode]\n" % sys.argv[0], 
+        "Available modes:\n",
+        "\t a to append to a currently existing folder\n",
+        "\t w to delete the currently existing folder and make a new one\n",
+        "\t n to create a new folder \n",
+        "Default behavior is n", sep = "")
+    print("Exiting program. Time elapsed: " + str(time.time() - startTime)  
+           + " seconds. Files downloaded: " + str(filesDownloaded))
     sys.exit()
 
-#Folder creation routine. Can append to a folder, write to a folder, or make a new folder.
+#Input: A name for the new folder, and a mode to use if we run into an existing folder.
+#Returns the name of the folder we will use.
 def createFolder(folderName, mode='n'):
     folderExists = False
     for folder in os.listdir('.'):
@@ -25,22 +33,22 @@ def createFolder(folderName, mode='n'):
             folderExists = True
             if mode == 'a':
                 print("Adding to folder " + folder)
-                folderName = folder
-                break
+                return folder
             elif mode == 'w':
                 print("Deleting folder " + folder + " and creating folder " + folderName)
                 shutil.rmtree(folder)
                 os.makedirs(folderName)
-                break
+                return folderName
             elif mode == 'n':
                 print("Creating folder " + folderName)
                 os.makedirs(folderName)
-                break
+                return folderName
             else:
                 printExit()
     if folderExists == False:
         print("Creating folder " + folderName)
         os.makedirs(folderName)
+        return folderName
 
 #Download all images from the given sub 
 def downloadFiles(folderName, sub):
@@ -52,21 +60,23 @@ def downloadFiles(folderName, sub):
         mainPageRequest.raise_for_status()
         mainPage = bs4.BeautifulSoup(mainPageRequest.text, features="lxml")
         #All images on an imgur page are in an <a> element with an image-list-link class
-        links = mainPage.find_all("a", {"class": "image-list-link"})
-        for link in links:
-            #The title of a picture is in a <p> element in a <div> element right after the <a> element.
-            #Replacing / with _ prevents an error with file creation on Linux and OS X.
-            pictureName = link.findNextSibling().find('p').getText().replace("/", "_")
-            #The link to the picture with the sub info removed and a '.jpg' appended is the actual file.
-            imageLink = "http://i.imgur.com/" + link["href"].replace("/r/" + sys.argv[1], "") + ".jpg"
-            imageRequest = requests.get(imageLink, headers=headers)
-            imageRequest.raise_for_status()
-            #Create a new file inside our folder and increment the number of files we've downloaded by 1
-            with open(folderName + os.sep + pictureName + ".jpg", 'wb') as pictureFile:
-                for chunk in imageRequest.iter_content(10000):
-                    pictureFile.write(chunk)
-                print("Downloaded file " + pictureName + ".jpg")
-                filesDownloaded += 1
+        for link in mainPage.find_all("a", {"class": "image-list-link"}):
+            try:
+                #The title of a picture is in a <p> element in a <div> element right after the <a> element.
+                #Replacing / with _ prevents an error with file creation on Linux and OS X.
+                pictureName = link.findNextSibling().find('p').getText().replace("/", "_")
+                #The link to the picture with the sub info removed and a '.jpg' appended is the actual file.
+                imageLink = "http://i.imgur.com/" + link["href"].replace("/r/" + sys.argv[1], "") + ".jpg"
+                imageRequest = requests.get(imageLink, headers=headers)
+                imageRequest.raise_for_status()
+                #Create a new file inside our folder and increment the number of files we've downloaded by 1
+                with open(folderName + os.sep + pictureName + ".jpg", 'wb') as pictureFile:
+                    for chunk in imageRequest.iter_content(8192):
+                        pictureFile.write(chunk)
+                    print("Downloaded file " + pictureName + ".jpg")
+                    filesDownloaded += 1
+            except OSError as err:
+                print("OSError: " + str(err))
     except KeyboardInterrupt: 
         pass
     printExit(error=False, filesDownloaded=filesDownloaded)
@@ -77,10 +87,9 @@ if len(sys.argv) in [2, 3]:
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     folderName = sub + " " + now
     if len(sys.argv) == 3:
-        createFolder(folderName, sys.argv[2])
-        downloadFiles(folderName, sub)
+        folderName = createFolder(folderName, sys.argv[2])
     else:
-        createFolder(folderName)
-        downloadFiles(folderName, sub)
+        folderName = createFolder(folderName)
+    downloadFiles(folderName, sub)
 else:
     printExit()
